@@ -21,7 +21,7 @@
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 
 const {useState,useEffect,useCallback,createElement:h} = React;
-const TABS = ["Сегодня","Задачи","Графики"];
+const TABS = ["Журнал","Задачи","Графики"];
 const PERIODS = ["7 дней","30 дней","Всё время"];
 const COLORS = ["#3266ad","#1D9E75","#D85A30","#7F77DD","#BA7517","#D4537E","#639922"];
 
@@ -29,104 +29,87 @@ function fmt(d){return d.toISOString().slice(0,10);}
 function today(){return fmt(new Date());}
 function daysAgo(n){const d=new Date();d.setDate(d.getDate()-n);return fmt(d);}
 function labelDate(s){const[,m,d]=s.split("-");return d+"."+m;}
+function ruDate(s){
+  const d=new Date(s+"T12:00:00");
+  return d.toLocaleDateString("ru-RU",{weekday:"short",day:"numeric",month:"long"});
+}
 
-// SVG Bar Chart
-function BarChart({data, dataKey, color, label}) {
-  const W=340, H=140, PL=36, PB=24, PT=8, PR=8;
-  const vals = data.map(d => d[dataKey] ?? 0);
-  const max = Math.max(...vals, 1);
-  const cW = W - PL - PR;
-  const cH = H - PT - PB;
-  const bW = Math.max(4, cW / data.length - 2);
-
-  return h('div', {style:{marginBottom:4}},
-    h('p', {style:{fontSize:13,color:"#888",marginBottom:6}}, label),
-    h('svg', {width:"100%", viewBox:`0 0 ${W} ${H}`},
-      // y-axis labels
-      [0,50,100].map(v =>
-        h('g', {key:v},
-          h('text',{x:PL-4,y:PT+cH-(v/100)*cH+4,textAnchor:"end",fontSize:10,fill:"#aaa"},v+"%"),
-          h('line',{x1:PL,x2:W-PR,y1:PT+cH-(v/100)*cH,y2:PT+cH-(v/100)*cH,stroke:"#eee",strokeWidth:1})
-        )
-      ),
-      // bars
-      data.map((d,i) => {
-        const v = d[dataKey] ?? null;
-        const bH = v === null ? 0 : Math.max(2, (v/max)*cH);
-        const x = PL + i*(cW/data.length) + (cW/data.length - bW)/2;
-        const y = PT + cH - bH;
-        return h('g', {key:i},
+function BarChartSVG({data,dataKey,color,label}){
+  const W=340,H=140,PL=36,PB=24,PT=8,PR=8;
+  const vals=data.map(d=>d[dataKey]??0);
+  const max=Math.max(...vals,1);
+  const cW=W-PL-PR,cH=H-PT-PB;
+  const bW=Math.max(4,cW/data.length-2);
+  return h('div',{style:{marginBottom:24}},
+    h('p',{style:{fontSize:13,color:"#888",marginBottom:6}},label),
+    h('svg',{width:"100%",viewBox:`0 0 ${W} ${H}`},
+      [0,50,100].map(v=>h('g',{key:v},
+        h('text',{x:PL-4,y:PT+cH-(v/100)*cH+4,textAnchor:"end",fontSize:10,fill:"#aaa"},v+"%"),
+        h('line',{x1:PL,x2:W-PR,y1:PT+cH-(v/100)*cH,y2:PT+cH-(v/100)*cH,stroke:"#eee",strokeWidth:1})
+      )),
+      data.map((d,i)=>{
+        const v=d[dataKey]??null;
+        const bH=v===null?0:Math.max(2,(v/max)*cH);
+        const x=PL+i*(cW/data.length)+(cW/data.length-bW)/2;
+        const y=PT+cH-bH;
+        return h('g',{key:i},
           h('rect',{x,y,width:bW,height:bH,fill:color,rx:2}),
-          i % Math.ceil(data.length/7) === 0 &&
-            h('text',{x:x+bW/2,y:H-2,textAnchor:"middle",fontSize:9,fill:"#aaa"},d.date)
+          i%Math.ceil(data.length/7)===0&&h('text',{x:x+bW/2,y:H-2,textAnchor:"middle",fontSize:9,fill:"#aaa"},d.date)
         );
       })
     )
   );
 }
 
-// SVG Line Chart
-function LineChartSVG({data, tasks}) {
-  const W=340, H=140, PL=36, PB=24, PT=8, PR=8;
-  const cW=W-PL-PR, cH=H-PT-PB;
-  const allVals = tasks.flatMap(t => data.map(d => d[t.name]).filter(v=>v!=null));
-  const max = Math.max(...allVals, 1);
-
-  return h('svg', {width:"100%", viewBox:`0 0 ${W} ${H}`},
-    [0, Math.round(max/2), max].map((v,i) =>
-      h('g',{key:i},
-        h('text',{x:PL-4,y:PT+cH-(v/max)*cH+4,textAnchor:"end",fontSize:10,fill:"#aaa"},Math.round(v)),
-        h('line',{x1:PL,x2:W-PR,y1:PT+cH-(v/max)*cH,y2:PT+cH-(v/max)*cH,stroke:"#eee",strokeWidth:1})
-      )
-    ),
-    tasks.map((t,ti) => {
-      const pts = data.map((d,i) => {
-        const v = d[t.name];
-        if(v==null) return null;
-        const x = PL + (i/(data.length-1||1))*cW;
-        const y = PT + cH - (v/max)*cH;
-        return [x,y];
+function LineChartSVG({data,tasks}){
+  const W=340,H=140,PL=36,PB=24,PT=8,PR=8;
+  const cW=W-PL-PR,cH=H-PT-PB;
+  const allVals=tasks.flatMap(t=>data.map(d=>d[t.name]).filter(v=>v!=null));
+  const max=Math.max(...allVals,1);
+  return h('svg',{width:"100%",viewBox:`0 0 ${W} ${H}`},
+    [0,Math.round(max/2),max].map((v,i)=>h('g',{key:i},
+      h('text',{x:PL-4,y:PT+cH-(v/max)*cH+4,textAnchor:"end",fontSize:10,fill:"#aaa"},Math.round(v)),
+      h('line',{x1:PL,x2:W-PR,y1:PT+cH-(v/max)*cH,y2:PT+cH-(v/max)*cH,stroke:"#eee",strokeWidth:1})
+    )),
+    tasks.map((t,ti)=>{
+      const pts=data.map((d,i)=>{
+        const v=d[t.name];
+        if(v==null)return null;
+        return[PL+(i/(data.length-1||1))*cW, PT+cH-(v/max)*cH];
       });
-      const segs = [];
-      let cur = [];
-      pts.forEach((p,i) => {
-        if(p){cur.push(p);}
-        else{if(cur.length>1) segs.push(cur); cur=[];}
-      });
-      if(cur.length>1) segs.push(cur);
-      return h('g',{key:t.id},
-        segs.map((seg,si) =>
-          h('polyline',{key:si, points:seg.map(p=>p.join(",")).join(" "),
-            fill:"none",stroke:COLORS[ti%COLORS.length],strokeWidth:2})
-        )
-      );
+      const segs=[];let cur=[];
+      pts.forEach(p=>{if(p){cur.push(p);}else{if(cur.length>1)segs.push(cur);cur=[];}});
+      if(cur.length>1)segs.push(cur);
+      return h('g',{key:t.id},segs.map((seg,si)=>
+        h('polyline',{key:si,points:seg.map(p=>p.join(",")).join(" "),
+          fill:"none",stroke:COLORS[ti%COLORS.length],strokeWidth:2})
+      ));
     }),
-    data.map((d,i) =>
-      i % Math.ceil(data.length/7) === 0 &&
-        h('text',{key:i,x:PL+(i/(data.length-1||1))*cW,y:H-2,
-          textAnchor:"middle",fontSize:9,fill:"#aaa"},d.date)
+    data.map((d,i)=>i%Math.ceil(data.length/7)===0&&
+      h('text',{key:i,x:PL+(i/(data.length-1||1))*cW,y:H-2,
+        textAnchor:"middle",fontSize:9,fill:"#aaa"},d.date)
     )
   );
 }
 
-function App() {
-  const [tab, setTab] = useState(0);
-  const [tasks, setTasks] = useState([]);
-  const [logs, setLogs] = useState({});
-  const [period, setPeriod] = useState(0);
-  const [newName, setNewName] = useState("");
-  const [newType, setNewType] = useState("bool");
+function App(){
+  const [tab,setTab]=useState(0);
+  const [tasks,setTasks]=useState([]);
+  const [logs,setLogs]=useState({});
+  const [period,setPeriod]=useState(0);
+  const [newName,setNewName]=useState("");
+  const [newType,setNewType]=useState("bool");
+  const [selDate,setSelDate]=useState(today());
 
-  useEffect(() => {
+  useEffect(()=>{
     try{const t=localStorage.getItem("tasks");if(t)setTasks(JSON.parse(t));}catch{}
     try{const l=localStorage.getItem("logs");if(l)setLogs(JSON.parse(l));}catch{}
   },[]);
 
-  const saveTasks = useCallback(t=>{setTasks(t);try{localStorage.setItem("tasks",JSON.stringify(t));}catch{}},[]);
-  const saveLogs  = useCallback(l=>{setLogs(l); try{localStorage.setItem("logs", JSON.stringify(l));}catch{}},[]);
+  const saveTasks=useCallback(t=>{setTasks(t);try{localStorage.setItem("tasks",JSON.stringify(t));}catch{}},[]);
+  const saveLogs=useCallback(l=>{setLogs(l);try{localStorage.setItem("logs",JSON.stringify(l));}catch{}},[]);
 
-  const todayStr = today();
-  const todayLogs = logs[todayStr]||{};
+  const dayLogs=logs[selDate]||{};
 
   function addTask(){
     const name=newName.trim();
@@ -135,7 +118,16 @@ function App() {
     setNewName("");
   }
   function removeTask(id){saveTasks(tasks.filter(t=>t.id!==id));}
-  function setLog(taskId,val){saveLogs({...logs,[todayStr]:{...todayLogs,[taskId]:val}});}
+  function setLog(taskId,val){
+    saveLogs({...logs,[selDate]:{...dayLogs,[taskId]:val}});
+  }
+
+  function shiftDate(n){
+    const d=new Date(selDate+"T12:00:00");
+    d.setDate(d.getDate()+n);
+    const s=fmt(d);
+    if(s<=today()) setSelDate(s);
+  }
 
   function getChartData(){
     let days;
@@ -143,11 +135,11 @@ function App() {
     else if(period===1) days=Array.from({length:30},(_,i)=>daysAgo(29-i));
     else{
       const all=Object.keys(logs).sort();
-      if(!all.length){days=[todayStr];}
+      if(!all.length){days=[today()];}
       else{
-        const s=new Date(all[0]),e=new Date(todayStr);
+        const s=new Date(all[0]),e=new Date(today());
         days=[];
-        for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1)) days.push(fmt(new Date(d)));
+        for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1))days.push(fmt(new Date(d)));
       }
     }
     return days.map(date=>{
@@ -168,53 +160,64 @@ function App() {
     });
   }
 
-  const chartData = getChartData();
-  const numTasks = tasks.filter(t=>t.type==="num");
-  const boolTasks = tasks.filter(t=>t.type==="bool");
+  const chartData=getChartData();
+  const numTasks=tasks.filter(t=>t.type==="num");
+  const boolTasks=tasks.filter(t=>t.type==="bool");
+  const isToday=selDate===today();
 
-  const S = {
-    wrap:{maxWidth:600,margin:"0 auto",padding:"1rem 1rem 3rem"},
+  const S={
     card:{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",
       marginBottom:8,background:"#fff",border:"1px solid #e5e5e5",borderRadius:8},
-    btn:(a)=>({padding:"6px 16px",borderRadius:8,border:"1px solid #ddd",
+    btn:a=>({padding:"6px 16px",borderRadius:8,border:"1px solid #ddd",
       background:a?"#f0f0f0":"transparent",fontWeight:a?500:400,fontSize:14,cursor:"pointer"}),
     inp:{fontSize:14,padding:"6px 10px",border:"1px solid #ddd",borderRadius:8,background:"#fff"},
+    navBtn:{width:36,height:36,borderRadius:8,border:"1px solid #ddd",
+      background:"transparent",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"},
   };
 
-  return h('div',{style:S.wrap},
+  return h('div',{style:{maxWidth:600,margin:"0 auto",padding:"1rem 1rem 3rem"}},
     h('h2',{style:{fontSize:18,fontWeight:500,marginBottom:"1rem"}},"Ежедневный чеклист"),
     h('div',{style:{display:"flex",gap:8,marginBottom:"1.5rem"}},
       TABS.map((label,i)=>h('button',{key:i,onClick:()=>setTab(i),style:S.btn(tab===i)},label))
     ),
 
-    // TAB 0 — Сегодня
-    tab===0 && h('div',null,
-      h('p',{style:{fontSize:13,color:"#888",marginBottom:"1rem"}},
-        new Date().toLocaleDateString("ru-RU",{weekday:"long",day:"numeric",month:"long"})
+    // TAB 0 — Журнал
+    tab===0&&h('div',null,
+      // Навигация по датам
+      h('div',{style:{display:"flex",alignItems:"center",gap:8,marginBottom:"1rem",flexWrap:"wrap"}},
+        h('button',{onClick:()=>shiftDate(-1),style:S.navBtn},"←"),
+        h('input',{type:"date",value:selDate,max:today(),
+          onChange:e=>{if(e.target.value<=today())setSelDate(e.target.value);},
+          style:{...S.inp,flex:1,minWidth:130}}),
+        h('button',{onClick:()=>shiftDate(1),disabled:isToday,
+          style:{...S.navBtn,opacity:isToday?0.3:1}},"→"),
+        !isToday&&h('button',{onClick:()=>setSelDate(today()),style:S.btn(false)},"Сегодня")
       ),
-      tasks.length===0 && h('p',{style:{color:"#888",fontSize:14}},"Нет задач. Добавь их на вкладке «Задачи»."),
+      h('p',{style:{fontSize:13,color:"#888",marginBottom:"1rem"}},ruDate(selDate)),
+
+      tasks.length===0&&h('p',{style:{color:"#888",fontSize:14}},"Нет задач. Добавь их на вкладке «Задачи»."),
       tasks.map(t=>h('div',{key:t.id,style:S.card},
         h('span',{style:{flex:1,fontSize:15}},t.name),
         t.type==="bool"
-          ? h('div',{style:{display:"flex",gap:6}},
-              h('button',{onClick:()=>setLog(t.id,true),style:{
-                width:36,height:36,borderRadius:8,border:"1px solid #ddd",fontSize:18,
-                background:todayLogs[t.id]===true?"#1D9E75":"transparent",
-                color:todayLogs[t.id]===true?"#fff":"#aaa"}},"✓"),
-              h('button',{onClick:()=>setLog(t.id,false),style:{
-                width:36,height:36,borderRadius:8,border:"1px solid #ddd",fontSize:18,
-                background:todayLogs[t.id]===false?"#E24B4A":"transparent",
-                color:todayLogs[t.id]===false?"#fff":"#aaa"}},"✗")
-            )
-          : h('input',{type:"number",placeholder:"0",
-              value:todayLogs[t.id]!==undefined?todayLogs[t.id]:"",
-              onChange:e=>setLog(t.id,e.target.value===""?undefined:Number(e.target.value)),
-              style:{...S.inp,width:80,textAlign:"right"}})
+          ?h('div',{style:{display:"flex",gap:6}},
+            h('button',{onClick:()=>setLog(t.id,true),style:{
+              width:36,height:36,borderRadius:8,border:"1px solid #ddd",fontSize:18,
+              background:dayLogs[t.id]===true?"#1D9E75":"transparent",
+              color:dayLogs[t.id]===true?"#fff":"#aaa"}},"✓"),
+            h('button',{onClick:()=>setLog(t.id,false),style:{
+              width:36,height:36,borderRadius:8,border:"1px solid #ddd",fontSize:18,
+              background:dayLogs[t.id]===false?"#E24B4A":"transparent",
+              color:dayLogs[t.id]===false?"#fff":"#aaa"}},"✗")
+          )
+          :h('input',{type:"number",placeholder:"0",
+            value:dayLogs[t.id]!==undefined?dayLogs[t.id]:"",
+            onChange:e=>setLog(t.id,e.target.value===""?undefined:Number(e.target.value)),
+            style:{...S.inp,width:80,textAlign:"right"}})
       ))
     ),
 
     // TAB 1 — Задачи
-    tab===1 && h('div',null,
+    tab===1&&h('div',null,
       h('div',{style:{display:"flex",gap:8,marginBottom:"1.25rem",flexWrap:"wrap"}},
         h('input',{value:newName,onChange:e=>setNewName(e.target.value),
           onKeyDown:e=>e.key==="Enter"&&addTask(),
@@ -225,7 +228,7 @@ function App() {
         ),
         h('button',{onClick:addTask,style:S.btn(false)},"Добавить")
       ),
-      tasks.length===0 && h('p',{style:{color:"#888",fontSize:14}},"Список пуст."),
+      tasks.length===0&&h('p',{style:{color:"#888",fontSize:14}},"Список пуст."),
       tasks.map(t=>h('div',{key:t.id,style:S.card},
         h('span',{style:{flex:1,fontSize:15}},t.name),
         h('span',{style:{fontSize:12,padding:"2px 8px",borderRadius:8,background:"#f0f0f0",color:"#666"}},
@@ -236,14 +239,14 @@ function App() {
     ),
 
     // TAB 2 — Графики
-    tab===2 && h('div',null,
+    tab===2&&h('div',null,
       h('div',{style:{display:"flex",gap:8,marginBottom:"1.25rem"}},
         PERIODS.map((p,i)=>h('button',{key:i,onClick:()=>setPeriod(i),style:S.btn(period===i)},p))
       ),
-      tasks.length===0 && h('p',{style:{color:"#888",fontSize:14}},"Нет задач для отображения."),
-      tasks.length>0 && h(BarChart,{data:chartData,dataKey:"_total",color:"#3266ad",label:"Общее выполнение (все задачи)"}),
-      boolTasks.length>0 && h(BarChart,{data:chartData,dataKey:"_pct",color:"#1D9E75",label:"Выполнение Да/Нет задач"}),
-      numTasks.length>0 && h('div',null,
+      tasks.length===0&&h('p',{style:{color:"#888",fontSize:14}},"Нет задач для отображения."),
+      tasks.length>0&&h(BarChartSVG,{data:chartData,dataKey:"_total",color:"#3266ad",label:"Общее выполнение (все задачи)"}),
+      boolTasks.length>0&&h(BarChartSVG,{data:chartData,dataKey:"_pct",color:"#1D9E75",label:"Выполнение Да/Нет задач"}),
+      numTasks.length>0&&h('div',null,
         h('p',{style:{fontSize:13,color:"#888",marginBottom:6}},"Числовые показатели"),
         h('div',{style:{display:"flex",flexWrap:"wrap",gap:12,marginBottom:8}},
           numTasks.map((t,i)=>h('span',{key:t.id,style:{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#888"}},
