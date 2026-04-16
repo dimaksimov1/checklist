@@ -1,0 +1,213 @@
+const { useState, useEffect, useCallback } = React;
+const { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } = Recharts;
+
+const TABS = ["Сегодня", "Задачи", "Графики"];
+const PERIODS = ["7 дней", "30 дней", "Всё время"];
+
+function fmt(date) { return date.toISOString().slice(0, 10); }
+function today() { return fmt(new Date()); }
+function daysAgo(n) { const d = new Date(); d.setDate(d.getDate() - n); return fmt(d); }
+function labelDate(str) { const [, m, d] = str.split("-"); return `${d}.${m}`; }
+
+function App() {
+  const [tab, setTab] = useState(0);
+  const [tasks, setTasks] = useState([]);
+  const [logs, setLogs] = useState({});
+  const [period, setPeriod] = useState(0);
+  const [newName, setNewName] = useState("");
+  const [newType, setNewType] = useState("bool");
+
+  useEffect(() => {
+    try { const t = localStorage.getItem("tasks"); if (t) setTasks(JSON.parse(t)); } catch {}
+    try { const l = localStorage.getItem("logs"); if (l) setLogs(JSON.parse(l)); } catch {}
+  }, []);
+
+  const saveTasks = useCallback((t) => {
+    setTasks(t);
+    try { localStorage.setItem("tasks", JSON.stringify(t)); } catch {}
+  }, []);
+  const saveLogs = useCallback((l) => {
+    setLogs(l);
+    try { localStorage.setItem("logs", JSON.stringify(l)); } catch {}
+  }, []);
+
+  const todayStr = today();
+  const todayLogs = logs[todayStr] || {};
+
+  function addTask() {
+    const name = newName.trim();
+    if (!name) return;
+    saveTasks([...tasks, { id: Date.now(), name, type: newType }]);
+    setNewName("");
+  }
+  function removeTask(id) { saveTasks(tasks.filter(t => t.id !== id)); }
+  function setLog(taskId, val) {
+    saveLogs({ ...logs, [todayStr]: { ...todayLogs, [taskId]: val } });
+  }
+
+  function getChartData() {
+    let days;
+    if (period === 0) days = Array.from({ length: 7 }, (_, i) => daysAgo(6 - i));
+    else if (period === 1) days = Array.from({ length: 30 }, (_, i) => daysAgo(29 - i));
+    else {
+      const allDates = Object.keys(logs).sort();
+      if (!allDates.length) days = [todayStr];
+      else {
+        const start = new Date(allDates[0]), end = new Date(todayStr);
+        days = [];
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1))
+          days.push(fmt(new Date(d)));
+      }
+    }
+    return days.map(date => {
+      const dayLog = logs[date] || {};
+      const row = { date: labelDate(date) };
+      tasks.forEach(t => {
+        const v = dayLog[t.id];
+        row[t.name] = t.type === "bool" ? (v === true ? 1 : v === false ? 0 : null) : (v !== undefined ? Number(v) : null);
+      });
+      const boolTasks = tasks.filter(x => x.type === "bool");
+      const done = boolTasks.filter(x => dayLog[x.id] === true).length;
+      row["_pct"] = boolTasks.length ? Math.round((done / boolTasks.length) * 100) : null;
+      const allDone = tasks.filter(x => {
+        const v = dayLog[x.id];
+        return x.type === "bool" ? v === true : v !== undefined && v !== "" && Number(v) !== 0;
+      }).length;
+      row["_total"] = tasks.length ? Math.round((allDone / tasks.length) * 100) : null;
+      return row;
+    });
+  }
+
+  const COLORS = ["#3266ad", "#1D9E75", "#D85A30", "#7F77DD", "#BA7517", "#D4537E", "#639922"];
+  const chartData = getChartData();
+
+  const s = {
+    card: { display:"flex", alignItems:"center", gap:12, padding:"10px 14px", marginBottom:8, background:"#fff", border:"1px solid #e5e5e5", borderRadius:8 },
+    btn: (active) => ({ padding:"6px 16px", borderRadius:8, border:"1px solid #ddd", background: active ? "#f0f0f0" : "transparent", fontWeight: active ? 500 : 400, cursor:"pointer", fontSize:14 }),
+    input: { fontSize:14, padding:"6px 10px", border:"1px solid #ddd", borderRadius:8, background:"#fff" },
+  };
+
+  return (
+    <div style={{ maxWidth:620, margin:"0 auto", padding:"1rem 1rem 2rem", fontFamily:"system-ui,sans-serif" }}>
+      <h2 style={{ fontSize:18, fontWeight:500, marginBottom:"1rem" }}>Ежедневный чеклист</h2>
+      <div style={{ display:"flex", gap:8, marginBottom:"1.5rem" }}>
+        {TABS.map((label, i) => <button key={i} onClick={() => setTab(i)} style={s.btn(tab===i)}>{label}</button>)}
+      </div>
+
+      {tab === 0 && (
+        <div>
+          <p style={{ fontSize:13, color:"#888", marginBottom:"1rem" }}>
+            {new Date().toLocaleDateString("ru-RU", { weekday:"long", day:"numeric", month:"long" })}
+          </p>
+          {tasks.length === 0 && <p style={{ color:"#888", fontSize:14 }}>Нет задач. Добавь их на вкладке «Задачи».</p>}
+          {tasks.map(t => (
+            <div key={t.id} style={s.card}>
+              <span style={{ flex:1, fontSize:15 }}>{t.name}</span>
+              {t.type === "bool" ? (
+                <div style={{ display:"flex", gap:6 }}>
+                  <button onClick={() => setLog(t.id, true)} style={{ width:32, height:32, borderRadius:8, border:"1px solid #ddd", background: todayLogs[t.id]===true ? "#1D9E75" : "transparent", color: todayLogs[t.id]===true ? "#fff" : "#888", cursor:"pointer", fontSize:16 }}>✓</button>
+                  <button onClick={() => setLog(t.id, false)} style={{ width:32, height:32, borderRadius:8, border:"1px solid #ddd", background: todayLogs[t.id]===false ? "#E24B4A" : "transparent", color: todayLogs[t.id]===false ? "#fff" : "#888", cursor:"pointer", fontSize:16 }}>✗</button>
+                </div>
+              ) : (
+                <input type="number" placeholder="0"
+                  value={todayLogs[t.id] !== undefined ? todayLogs[t.id] : ""}
+                  onChange={e => setLog(t.id, e.target.value==="" ? undefined : Number(e.target.value))}
+                  style={{ ...s.input, width:80, textAlign:"right" }} />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 1 && (
+        <div>
+          <div style={{ display:"flex", gap:8, marginBottom:"1.25rem", flexWrap:"wrap" }}>
+            <input value={newName} onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => e.key==="Enter" && addTask()}
+              placeholder="Название задачи" style={{ ...s.input, flex:1, minWidth:160 }} />
+            <select value={newType} onChange={e => setNewType(e.target.value)} style={s.input}>
+              <option value="bool">Да/Нет</option>
+              <option value="num">Число</option>
+            </select>
+            <button onClick={addTask} style={s.btn(false)}>Добавить</button>
+          </div>
+          {tasks.length === 0 && <p style={{ color:"#888", fontSize:14 }}>Список пуст.</p>}
+          {tasks.map(t => (
+            <div key={t.id} style={s.card}>
+              <span style={{ flex:1, fontSize:15 }}>{t.name}</span>
+              <span style={{ fontSize:12, padding:"2px 8px", borderRadius:8, background:"#f0f0f0", color:"#666" }}>{t.type==="bool" ? "Да/Нет" : "Число"}</span>
+              <button onClick={() => removeTask(t.id)} style={{ background:"transparent", border:"none", cursor:"pointer", color:"#aaa", fontSize:18, lineHeight:1, padding:"2px 4px" }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 2 && (
+        <div>
+          <div style={{ display:"flex", gap:8, marginBottom:"1.25rem" }}>
+            {PERIODS.map((p, i) => <button key={i} onClick={() => setPeriod(i)} style={s.btn(period===i)}>{p}</button>)}
+          </div>
+          {tasks.length === 0 && <p style={{ color:"#888", fontSize:14 }}>Нет задач для отображения.</p>}
+
+          {tasks.length > 0 && (
+            <div style={{ marginBottom:"2rem" }}>
+              <p style={{ fontSize:13, color:"#888", marginBottom:8 }}>Общее выполнение (все задачи)</p>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={chartData} margin={{ top:4, right:8, left:-20, bottom:0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                  <XAxis dataKey="date" tick={{ fontSize:11, fill:"#888" }} />
+                  <YAxis domain={[0,100]} tick={{ fontSize:11, fill:"#888" }} tickFormatter={v=>`${v}%`} />
+                  <Tooltip formatter={v => v!==null ? `${v}%` : "—"} />
+                  <Bar dataKey="_total" name="Выполнено" fill="#3266ad" radius={[3,3,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {tasks.filter(t=>t.type==="bool").length > 0 && (
+            <div style={{ marginBottom:"2rem" }}>
+              <p style={{ fontSize:13, color:"#888", marginBottom:8 }}>Процент выполнения (Да/Нет задачи)</p>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={chartData} margin={{ top:4, right:8, left:-20, bottom:0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                  <XAxis dataKey="date" tick={{ fontSize:11, fill:"#888" }} />
+                  <YAxis domain={[0,100]} tick={{ fontSize:11, fill:"#888" }} tickFormatter={v=>`${v}%`} />
+                  <Tooltip formatter={v => v!==null ? `${v}%` : "—"} />
+                  <Bar dataKey="_pct" name="Выполнено" fill="#1D9E75" radius={[3,3,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {tasks.filter(t=>t.type==="num").length > 0 && (
+            <div>
+              <p style={{ fontSize:13, color:"#888", marginBottom:8 }}>Числовые показатели</p>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:12, marginBottom:8 }}>
+                {tasks.filter(t=>t.type==="num").map((t,i) => (
+                  <span key={t.id} style={{ display:"flex", alignItems:"center", gap:4, fontSize:12, color:"#888" }}>
+                    <span style={{ width:10, height:10, borderRadius:2, background:COLORS[i%COLORS.length], display:"inline-block" }} />
+                    {t.name}
+                  </span>
+                ))}
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={chartData} margin={{ top:4, right:8, left:-20, bottom:0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                  <XAxis dataKey="date" tick={{ fontSize:11, fill:"#888" }} />
+                  <YAxis tick={{ fontSize:11, fill:"#888" }} />
+                  <Tooltip />
+                  {tasks.filter(t=>t.type==="num").map((t,i) => (
+                    <Line key={t.id} type="monotone" dataKey={t.name}
+                      stroke={COLORS[i%COLORS.length]} dot={false} strokeWidth={2} connectNulls={false} />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
